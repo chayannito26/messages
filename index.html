@@ -13,6 +13,8 @@
             --primary-text: #2d3748;
             --secondary-text: #718096;
             --accent-color: #4A90E2;
+            --danger-color: #e53e3e;
+            --danger-hover-color: #c53030;
             --shadow-color: rgba(0, 0, 0, 0.08);
             --border-color: #e2e8f0;
         }
@@ -66,15 +68,21 @@
         }
 
         .message-card {
+            position: relative; /* Needed for positioning the delete button */
             background-color: var(--card-background);
             border-radius: 12px;
             padding: 1.75rem;
             box-shadow: 0 4px 12px var(--shadow-color);
             border: 1px solid var(--border-color);
-            transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+            transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out, opacity 0.4s ease;
             opacity: 0;
             transform: translateY(20px);
             animation: fadeIn 0.5s forwards;
+        }
+
+        .message-card.fading-out {
+            opacity: 0;
+            transform: scale(0.95);
         }
 
         @keyframes fadeIn {
@@ -116,6 +124,27 @@
             line-height: 1.6;
             color: var(--primary-text);
         }
+
+        .delete-btn {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: transparent;
+            border: none;
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: var(--secondary-text);
+            cursor: pointer;
+            padding: 5px 10px;
+            line-height: 1;
+            border-radius: 50%;
+            transition: background-color 0.2s, color 0.2s;
+        }
+
+        .delete-btn:hover {
+            background-color: #fef2f2;
+            color: var(--danger-color);
+        }
     </style>
 </head>
 <body>
@@ -156,21 +185,46 @@
 
         /**
          * Formats a Firebase Timestamp into a readable string.
-         * @param {firebase.firestore.Timestamp} timestamp - The timestamp to format.
-         * @returns {string} - A formatted date and time string.
          */
         function formatTimestamp(timestamp) {
-            if (!timestamp || !timestamp.toDate) {
-                return 'Date not available';
-            }
+            if (!timestamp || !timestamp.toDate) return 'Date not available';
             const date = timestamp.toDate();
             return date.toLocaleDateString('en-US', {
-                year: 'numeric',
-                month: 'long',
-                day: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit'
+                year: 'numeric', month: 'long', day: 'numeric',
+                hour: '2-digit', minute: '2-digit'
             });
+        }
+
+        /**
+         * Deletes a message from Firestore and removes it from the UI.
+         * @param {string} docId - The ID of the document to delete.
+         */
+        async function deleteMessage(docId) {
+            if (!confirm('Are you sure you want to permanently delete this message?')) {
+                return;
+            }
+
+            const cardElement = document.getElementById(`message-${docId}`);
+            if (!cardElement) return;
+
+            try {
+                // Delete from Firestore
+                await db.collection('contacts').doc(docId).delete();
+
+                // Animate and remove from UI
+                cardElement.classList.add('fading-out');
+                setTimeout(() => {
+                    cardElement.remove();
+                    // If no messages are left, show a message
+                    if (messageList.children.length === 0) {
+                        messageList.innerHTML = '<p>🎉 All messages have been cleared!</p>';
+                    }
+                }, 400); // Match timeout with CSS transition duration
+
+            } catch (error) {
+                console.error("Error removing document: ", error);
+                alert('Failed to delete message. Please try again.');
+            }
         }
 
         /**
@@ -178,11 +232,9 @@
          */
         async function fetchMessages() {
             try {
-                // Reference to the 'contacts' collection, ordered by submission time
                 const contactsRef = db.collection('contacts').orderBy('submittedAt', 'desc');
                 const snapshot = await contactsRef.get();
                 
-                // Clear the loader
                 loader.style.display = 'none';
 
                 if (snapshot.empty) {
@@ -191,14 +243,15 @@
                 }
 
                 let animationDelay = 0;
-                // Loop through each document and create a message card
                 snapshot.forEach(doc => {
                     const data = doc.data();
                     const card = document.createElement('div');
                     card.className = 'message-card';
+                    card.id = `message-${doc.id}`; // Assign a unique ID to the card
                     card.style.animationDelay = `${animationDelay}s`;
                     
                     card.innerHTML = `
+                        <button class="delete-btn" onclick="deleteMessage('${doc.id}')" title="Delete Message">&times;</button>
                         <div class="card-header">
                             <h3>${data.name || 'Anonymous'}</h3>
                             <span class="timestamp">${formatTimestamp(data.submittedAt)}</span>
@@ -207,7 +260,7 @@
                     `;
                     
                     messageList.appendChild(card);
-                    animationDelay += 0.1; // Stagger the animation for each card
+                    animationDelay += 0.1;
                 });
 
             } catch (error) {
@@ -216,7 +269,6 @@
             }
         }
 
-        // Fetch messages when the page loads
         document.addEventListener('DOMContentLoaded', fetchMessages);
     </script>
 </body>
