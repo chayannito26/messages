@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Messages | Inbox</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+        :root {
+            --background-color: #f4f7fa;
+            --card-background: #ffffff;
+            --primary-text: #2d3748;
+            --secondary-text: #718096;
+            --accent-color: #4A90E2;
+            --shadow-color: rgba(0, 0, 0, 0.08);
+            --border-color: #e2e8f0;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--background-color);
+            color: var(--primary-text);
+            margin: 0;
+            padding: 2rem;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            min-height: 100vh;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 800px;
+            background: transparent;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 2.5rem;
+        }
+
+        header h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: var(--primary-text);
+            margin: 0;
+        }
+
+        header p {
+            font-size: 1.1rem;
+            color: var(--secondary-text);
+            margin-top: 0.5rem;
+        }
+        
+        #loader {
+            text-align: center;
+            font-size: 1.2rem;
+            color: var(--secondary-text);
+            padding: 3rem 0;
+        }
+
+        .message-list {
+            display: grid;
+            gap: 1.5rem;
+        }
+
+        .message-card {
+            background-color: var(--card-background);
+            border-radius: 12px;
+            padding: 1.75rem;
+            box-shadow: 0 4px 12px var(--shadow-color);
+            border: 1px solid var(--border-color);
+            transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+            opacity: 0;
+            transform: translateY(20px);
+            animation: fadeIn 0.5s forwards;
+        }
+
+        @keyframes fadeIn {
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .message-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .card-header h3 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: var(--accent-color);
+            margin: 0;
+        }
+
+        .card-header .timestamp {
+            font-size: 0.875rem;
+            color: var(--secondary-text);
+            font-weight: 500;
+        }
+
+        .message-body {
+            font-size: 1rem;
+            line-height: 1.6;
+            color: var(--primary-text);
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <header>
+            <h1>📬 Inbox</h1>
+            <p>Here are the latest messages submitted by users.</p>
+        </header>
+
+        <main id="message-list" class="message-list">
+            <div id="loader">Loading messages...</div>
+            </main>
+    </div>
+
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+
+    <script>
+        // Your web app's Firebase configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyDsI5v9okHOdxbEw8k8hXwzPzZMpDrirbM",
+            authDomain: "chayannito-26.firebaseapp.com",
+            projectId: "chayannito-26",
+            storageBucket: "chayannito-26.firebasestorage.app",
+            messagingSenderId: "127749935084",
+            appId: "1:127749935084:web:8bf6df50ce2cbc96cdbac9",
+            measurementId: "G-CRHHT66GTQ"
+        };
+
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+
+        // DOM Elements
+        const messageList = document.getElementById('message-list');
+        const loader = document.getElementById('loader');
+
+        /**
+         * Formats a Firebase Timestamp into a readable string.
+         * @param {firebase.firestore.Timestamp} timestamp - The timestamp to format.
+         * @returns {string} - A formatted date and time string.
+         */
+        function formatTimestamp(timestamp) {
+            if (!timestamp || !timestamp.toDate) {
+                return 'Date not available';
+            }
+            const date = timestamp.toDate();
+            return date.toLocaleDateString('en-US', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+        }
+
+        /**
+         * Fetches and displays messages from Firestore.
+         */
+        async function fetchMessages() {
+            try {
+                // Reference to the 'contacts' collection, ordered by submission time
+                const contactsRef = db.collection('contacts').orderBy('submittedAt', 'desc');
+                const snapshot = await contactsRef.get();
+                
+                // Clear the loader
+                loader.style.display = 'none';
+
+                if (snapshot.empty) {
+                    messageList.innerHTML = '<p>No messages found.</p>';
+                    return;
+                }
+
+                let animationDelay = 0;
+                // Loop through each document and create a message card
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    const card = document.createElement('div');
+                    card.className = 'message-card';
+                    card.style.animationDelay = `${animationDelay}s`;
+                    
+                    card.innerHTML = `
+                        <div class="card-header">
+                            <h3>${data.name || 'Anonymous'}</h3>
+                            <span class="timestamp">${formatTimestamp(data.submittedAt)}</span>
+                        </div>
+                        <p class="message-body">${data.message || 'No message content.'}</p>
+                    `;
+                    
+                    messageList.appendChild(card);
+                    animationDelay += 0.1; // Stagger the animation for each card
+                });
+
+            } catch (error) {
+                console.error("Error fetching messages:", error);
+                loader.textContent = 'Failed to load messages. Please check the console.';
+            }
+        }
+
+        // Fetch messages when the page loads
+        document.addEventListener('DOMContentLoaded', fetchMessages);
+    </script>
+</body>
+</html>
