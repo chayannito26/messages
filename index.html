@@ -31,6 +31,33 @@
             min-height: 100vh;
         }
 
+        /* Modal Animations */
+        #modal-overlay {
+            transition: opacity 0.35s cubic-bezier(.4,0,.2,1);
+            opacity: 0;
+            pointer-events: none;
+        }
+        #modal-overlay.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        #modal-box {
+            transform: scale(0.85);
+            transition: transform 0.35s cubic-bezier(.4,0,.2,1);
+            opacity: 0;
+        }
+        #modal-overlay.active #modal-box {
+            transform: scale(1);
+            opacity: 1;
+        }
+
+        /* Message card exit animation */
+        .message-card.fading-out {
+            opacity: 0;
+            transform: translateX(40px) scale(0.95);
+            transition: opacity 0.5s, transform 0.5s;
+        }
+
         .container {
             width: 100%;
             max-width: 800px;
@@ -149,16 +176,26 @@
 </head>
 <body>
 
-    <div class="container">
-        <header>
-            <h1>📬 Inbox</h1>
-            <p>Here are the latest messages submitted by users.</p>
-        </header>
 
-        <main id="message-list" class="message-list">
-            <div id="loader">Loading messages...</div>
-            </main>
-    </div>
+        <!-- Custom Modal for Confirm and Error -->
+            <div id="modal-overlay" style="position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(44,62,80,0.25);z-index:1000;justify-content:center;align-items:center;display:flex;">
+                <div id="modal-box" style="background:#fff;border-radius:16px;box-shadow:0 8px 32px rgba(0,0,0,0.18);padding:2rem;max-width:350px;text-align:center;position:relative;">
+                    <h2 id="modal-title" style="margin-top:0;font-size:1.35rem;color:var(--accent-color);"></h2>
+                    <p id="modal-message" style="color:var(--primary-text);"></p>
+                    <div id="modal-actions" style="margin-top:1.5rem;display:flex;justify-content:center;gap:1rem;"></div>
+                </div>
+            </div>
+
+        <div class="container">
+                <header>
+                        <h1>📬 Inbox</h1>
+                        <p>Here are the latest messages submitted by users.</p>
+                </header>
+
+                <main id="message-list" class="message-list">
+                        <div id="loader">Loading messages...</div>
+                        </main>
+        </div>
 
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
@@ -195,61 +232,140 @@
             });
         }
 
+
+        // Modal logic with robust animation
+        function showModal({title, message, actions}) {
+            const overlay = document.getElementById('modal-overlay');
+            const modalTitle = document.getElementById('modal-title');
+            const modalMsg = document.getElementById('modal-message');
+            const modalActions = document.getElementById('modal-actions');
+            modalTitle.textContent = title || '';
+            modalMsg.textContent = message || '';
+            modalActions.innerHTML = '';
+            actions.forEach(({label, style, onClick}) => {
+                const btn = document.createElement('button');
+                btn.textContent = label;
+                btn.style.padding = '0.5rem 1.2rem';
+                btn.style.fontWeight = '600';
+                btn.style.fontSize = '1rem';
+                btn.style.borderRadius = '8px';
+                btn.style.border = 'none';
+                btn.style.cursor = 'pointer';
+                btn.style.background = style === 'danger' ? 'var(--danger-color)' : 'var(--accent-color)';
+                btn.style.color = '#fff';
+                btn.onmouseenter = () => btn.style.background = style === 'danger' ? 'var(--danger-hover-color)' : '#357ABD';
+                btn.onmouseleave = () => btn.style.background = style === 'danger' ? 'var(--danger-color)' : 'var(--accent-color)';
+                if (style === 'danger' && typeof onClick === 'function') {
+                    btn.onclick = async () => {
+                        await onClick();
+                        overlay.classList.remove('active');
+                        setTimeout(() => {
+                            overlay.style.display = 'none';
+                        }, 350);
+                    };
+                } else {
+                    btn.onclick = () => {
+                        overlay.classList.remove('active');
+                        setTimeout(() => {
+                            overlay.style.display = 'none';
+                            if (onClick) onClick();
+                        }, 350);
+                    };
+                }
+                modalActions.appendChild(btn);
+            });
+            // Always set display:flex before fade-in
+            overlay.style.display = 'flex';
+            // Remove active first to reset animation if needed
+            overlay.classList.remove('active');
+            setTimeout(() => overlay.classList.add('active'), 10);
+        }
+
         /**
          * Deletes a message from Firestore and removes it from the UI.
          * @param {string} docId - The ID of the document to delete.
          */
-        async function deleteMessage(docId) {
-            if (!confirm('Are you sure you want to permanently delete this message?')) {
-                return;
-            }
-
-            const cardElement = document.getElementById(`message-${docId}`);
-            if (!cardElement) return;
-
-            try {
-                // Delete from Firestore
-                await db.collection('contacts').doc(docId).delete();
-
-                // Animate and remove from UI
-                cardElement.classList.add('fading-out');
-                setTimeout(() => {
-                    cardElement.remove();
-                    // If no messages are left, show a message
-                    if (messageList.children.length === 0) {
-                        messageList.innerHTML = '<p>🎉 All messages have been cleared!</p>';
+        function deleteMessage(docId) {
+            showModal({
+                title: 'Delete Message',
+                message: 'Are you sure you want to permanently delete this message?',
+                actions: [
+                    {
+                        label: 'Cancel',
+                        style: 'default',
+                        onClick: null
+                    },
+                    {
+                        label: 'Delete',
+                        style: 'danger',
+                        onClick: async function() {
+                            const cardElement = document.getElementById(`message-${docId}`);
+                            if (!cardElement) return;
+                            // Close modal immediately
+                            const overlay = document.getElementById('modal-overlay');
+                            overlay.classList.remove('active');
+                            setTimeout(() => {
+                                overlay.style.display = 'none';
+                            }, 350);
+                            try {
+                                // Mark card as pending removal so listener doesn't remove it instantly
+                                cardElement.dataset.pendingRemoval = 'true';
+                                await db.collection('contacts').doc(docId).delete();
+                                cardElement.classList.add('fading-out');
+                                setTimeout(() => {
+                                    cardElement.remove();
+                                    if (messageList.children.length === 0) {
+                                        messageList.innerHTML = '<p>🎉 All messages have been cleared!</p>';
+                                    }
+                                }, 500);
+                            } catch (error) {
+                                console.error("Error removing document: ", error);
+                                showModal({
+                                    title: 'Delete Failed',
+                                    message: 'Failed to delete message. Please try again.',
+                                    actions: [
+                                        {label: 'OK', style: 'default', onClick: null}
+                                    ]
+                                });
+                            }
+                        }
                     }
-                }, 400); // Match timeout with CSS transition duration
-
-            } catch (error) {
-                console.error("Error removing document: ", error);
-                alert('Failed to delete message. Please try again.');
-            }
+                ]
+            });
         }
 
         /**
-         * Fetches and displays messages from Firestore.
+         * Real-time listener for Firestore messages.
          */
-        async function fetchMessages() {
-            try {
-                const contactsRef = db.collection('contacts').orderBy('submittedAt', 'desc');
-                const snapshot = await contactsRef.get();
-                
-                loader.style.display = 'none';
-
-                if (snapshot.empty) {
-                    messageList.innerHTML = '<p>No messages found.</p>';
-                    return;
+        function renderMessages(snapshot) {
+            loader.style.display = 'none';
+            if (snapshot.empty) {
+                messageList.innerHTML = '<p>No messages found.</p>';
+                return;
+            }
+            // Remove cards not in snapshot
+            const currentIds = new Set();
+            snapshot.forEach(doc => currentIds.add(doc.id));
+            Array.from(messageList.children).forEach(child => {
+                if (child.id && child.id.startsWith('message-')) {
+                    const docId = child.id.replace('message-', '');
+                    // Don't remove if pending removal (handled by deleteMessage)
+                    if (!currentIds.has(docId) && !child.dataset.pendingRemoval) {
+                        child.classList.add('fading-out');
+                        setTimeout(() => child.remove(), 500);
+                    }
                 }
-
-                let animationDelay = 0;
-                snapshot.forEach(doc => {
-                    const data = doc.data();
-                    const card = document.createElement('div');
+            });
+            // Add/update cards
+            let animationDelay = 0;
+            snapshot.forEach(doc => {
+                const data = doc.data();
+                let card = document.getElementById(`message-${doc.id}`);
+                if (!card) {
+                    card = document.createElement('div');
                     card.className = 'message-card';
-                    card.id = `message-${doc.id}`; // Assign a unique ID to the card
+                    card.id = `message-${doc.id}`;
                     card.style.animationDelay = `${animationDelay}s`;
-                    
                     card.innerHTML = `
                         <button class="delete-btn" onclick="deleteMessage('${doc.id}')" title="Delete Message">&times;</button>
                         <div class="card-header">
@@ -258,18 +374,32 @@
                         </div>
                         <p class="message-body">${data.message || 'No message content.'}</p>
                     `;
-                    
+                    card.style.opacity = '0';
+                    card.style.transform = 'translateY(20px)';
                     messageList.appendChild(card);
+                    setTimeout(() => {
+                        card.style.opacity = '1';
+                        card.style.transform = 'translateY(0)';
+                    }, 50);
                     animationDelay += 0.1;
-                });
-
-            } catch (error) {
-                console.error("Error fetching messages:", error);
-                loader.textContent = 'Failed to load messages. Please check the console.';
-            }
+                } else {
+                    // Update card content if needed
+                    card.querySelector('.card-header h3').textContent = data.name || 'Anonymous';
+                    card.querySelector('.timestamp').textContent = formatTimestamp(data.submittedAt);
+                    card.querySelector('.message-body').textContent = data.message || 'No message content.';
+                }
+            });
         }
 
-        document.addEventListener('DOMContentLoaded', fetchMessages);
+        function listenForMessages() {
+            db.collection('contacts').orderBy('submittedAt', 'desc')
+                .onSnapshot(renderMessages, error => {
+                    console.error("Error listening for messages:", error);
+                    loader.textContent = 'Failed to load messages. Please check the console.';
+                });
+        }
+
+        document.addEventListener('DOMContentLoaded', listenForMessages);
     </script>
 </body>
 </html>
